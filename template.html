@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <title>تقرير مشروع Asana</title>
+</head>
+<body class="bg-gray-50 text-gray-800 p-8 font-sans">
+  <div class="max-w-4xl mx-auto bg-white shadow-md rounded-xl p-6 space-y-6">
+    <!-- عنوان التقرير -->
+    <div class="flex justify-between items-center border-b pb-2 mb-4">
+      <h1 class="text-3xl font-bold text-blue-600">📋 تقرير مشروع: {{project_name}}</h1>
+      <span class="text-sm text-gray-500">📅 التاريخ: {{report_date}}</span>
+    </div>
+
+    <!-- ملخص GPT -->
+    <div class="bg-blue-50 border border-blue-200 p-4 rounded">
+      <h2 class="text-xl font-semibold text-blue-700 mb-2">🧠 ملخص GPT:</h2>
+      <p class="leading-loose text-gray-700">{{summary}}</p>
+    </div>
+
+    <!-- الرسم البياني -->
+    <div>
+      <h2 class="text-xl font-semibold text-gray-800 mt-6 mb-2">📈 الرسم البياني لحالة المهام:</h2>
+      <img src="{{chart_path}}" alt="الرسم البياني" class="rounded border w-full max-w-md mx-auto">
+    </div>
+
+    <!-- جدول المهام -->
+    <div>
+      <h2 class="text-xl font-semibold text-gray-800 mt-6 mb-2">📊 جدول المهام:</h2>
+      <div class="overflow-x-auto">{{df_table}}</div>
+    </div>
+
+    <!-- جدول تحليل الموظفين -->
+    <div>
+      <h2 class="text-xl font-semibold text-gray-800 mt-6 mb-2">👥 تحليل الموظفين:</h2>
+      <div class="overflow-x-auto">{{user_stats}}</div>
+    </div>
+
+    <!-- زر الطباعة -->
+    <div class="mt-8 text-center">
+      <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded">
+        🖨️ طباعة / حفظ كـ PDF
+      </button>
+    </div>
+  </div>
+</body>
+</html>
