@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import os
 from datetime import datetime
 import streamlit.components.v1 as components
+from io import BytesIO
 
 st.set_page_config(page_title="تقرير مشروع ", layout="centered")
 
@@ -144,6 +145,25 @@ def generate_chart(df):
     ax.set_ylabel("Total Tasks")
     st.pyplot(fig)
 
+def export_excel_report(df, user_stats_df, summary):
+    overall_summary = pd.DataFrame({
+        "Total Tasks": [len(df)],
+        "Completed": [(df["Completed"] == "✅").sum()],
+        "Not Completed": [(df["Completed"] == "❌").sum()],
+        "Delayed": [((df["Completed"] == "❌") & (df["Due Date"] < pd.Timestamp.today())).sum()]
+    })
+
+    summary_df = pd.DataFrame({"تحليل GPT": [summary]})
+
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name="مهام المشروع")
+        overall_summary.to_excel(writer, index=False, sheet_name="إحصائيات عامة")
+        user_stats_df.to_excel(writer, index=False, sheet_name="تحليل الموظفين")
+        summary_df.to_excel(writer, index=False, sheet_name="تحليل GPT")
+    output.seek(0)
+    return output
+
 # --------- واجهة المستخدم --------- #
 st.markdown("<div class='report-title'>📋 مولد تقرير Asana</div>", unsafe_allow_html=True)
 st.write("أدخل معرف (ID) المشروع للحصول على تقرير شامل:")
@@ -174,6 +194,15 @@ if st.button("توليد التقرير") and project_id_input:
             st.markdown("<div class='section-header'>👥 تحليل الموظفين</div>", unsafe_allow_html=True)
             st.dataframe(user_stats_df, use_container_width=True)
 
+            st.markdown("<div class='section-header'>📥 تحميل التقرير بصيغة Excel (متعدد الصفحات)</div>", unsafe_allow_html=True)
+            excel_data = export_excel_report(df, user_stats_df, summary)
+            st.download_button(
+                label="⬇️ تحميل التقرير بصيغة Excel",
+                data=excel_data,
+                file_name=f"asana_report_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
             st.markdown("""
 <div style="text-align:center; margin-top:40px;">
     <p style="color:#374151;font-size:16px;font-weight:bold;">
@@ -182,7 +211,6 @@ if st.button("توليد التقرير") and project_id_input:
     </p>
 </div>
 """, unsafe_allow_html=True)
-
 
         except Exception as e:
             st.error(f"حدث خطأ: {e}")
