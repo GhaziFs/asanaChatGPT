@@ -4,3 +4,5 @@ requests
 matplotlib
 openai
 python-dotenv
+XlsxWriter
+
