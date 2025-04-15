@@ -139,7 +139,8 @@ def upload_to_google_sheets(sheet_id, df_tasks, df_summary, df_users, gpt_summar
         ws.clear()
     except:
         ws = sheet.add_worksheet(title="تحليل GPT", rows="100", cols="1")
-    ws.update("A1", gpt_summary)
+    ws.update("A1", [[gpt_summary]])
+
 
 # --------- واجهة المستخدم --------- #
 st.markdown("<div class='report-title'>📋 مولد تقرير Asana</div>", unsafe_allow_html=True)
