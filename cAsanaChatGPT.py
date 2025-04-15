@@ -8,6 +8,8 @@ import os
 from datetime import datetime
 import streamlit.components.v1 as components
 from io import BytesIO
+import gspread
+from google.oauth2 import service_account
 
 st.set_page_config(page_title="تقرير مشروع ", layout="centered")
 
@@ -145,24 +147,37 @@ def generate_chart(df):
     ax.set_ylabel("Total Tasks")
     st.pyplot(fig)
 
-def export_excel_report(df, user_stats_df, summary):
-    overall_summary = pd.DataFrame({
-        "Total Tasks": [len(df)],
-        "Completed": [(df["Completed"] == "✅").sum()],
-        "Not Completed": [(df["Completed"] == "❌").sum()],
-        "Delayed": [((df["Completed"] == "❌") & (df["Due Date"] < pd.Timestamp.today())).sum()]
-    })
+def upload_to_google_sheets(sheet_id, df_tasks, df_summary, df_users, gpt_summary):
+    credentials_dict = st.secrets["google_service_account"]
+    credentials = service_account.Credentials.from_service_account_info(
+        credentials_dict,
+        scopes=[
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ],
+    )
+    client = gspread.authorize(credentials)
+    sheet = client.open_by_key(sheet_id)
 
-    summary_df = pd.DataFrame({"تحليل GPT": [summary]})
+    def update_sheet(worksheet_name, dataframe):
+        try:
+            worksheet = sheet.worksheet(worksheet_name)
+            worksheet.clear()
+        except:
+            worksheet = sheet.add_worksheet(title=worksheet_name, rows="100", cols="20")
+        worksheet.update([dataframe.columns.values.tolist()] + dataframe.values.tolist())
 
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name="مهام المشروع")
-        overall_summary.to_excel(writer, index=False, sheet_name="إحصائيات عامة")
-        user_stats_df.to_excel(writer, index=False, sheet_name="تحليل الموظفين")
-        summary_df.to_excel(writer, index=False, sheet_name="تحليل GPT")
-    output.seek(0)
-    return output
+    update_sheet("مهام المشروع", df_tasks)
+    update_sheet("إحصائيات عامة", df_summary)
+    update_sheet("تحليل الموظفين", df_users)
+
+    try:
+        sheet_gpt = sheet.worksheet("تحليل GPT")
+        sheet_gpt.clear()
+    except:
+        sheet_gpt = sheet.add_worksheet(title="تحليل GPT", rows="100", cols="1")
+    sheet_gpt.update("A1", gpt_summary)
 
 # --------- واجهة المستخدم --------- #
 st.markdown("<div class='report-title'>📋 مولد تقرير Asana</div>", unsafe_allow_html=True)
@@ -193,6 +208,21 @@ if st.button("..توليد التقرير") and project_id_input:
 
             st.markdown("<div class='section-header'>👥 تحليل الموظفين</div>", unsafe_allow_html=True)
             st.dataframe(user_stats_df, use_container_width=True)
+
+            overall_summary = pd.DataFrame({
+                "Total Tasks": [len(df)],
+                "Completed": [(df["Completed"] == "✅").sum()],
+                "Not Completed": [(df["Completed"] == "❌").sum()],
+                "Delayed": [((df["Completed"] == "❌") & (df["Due Date"] < pd.Timestamp.today())).sum()]
+            })
+
+            upload_to_google_sheets(
+                sheet_id=st.secrets["GOOGLE_SHEET_ID"],
+                df_tasks=df,
+                df_summary=overall_summary,
+                df_users=user_stats_df,
+                gpt_summary=summary
+            )
 
             st.markdown("<div class='section-header'>📥 تحميل التقرير بصيغة Excel (متعدد الصفحات)</div>", unsafe_allow_html=True)
             excel_data = export_excel_report(df, user_stats_df, summary)
