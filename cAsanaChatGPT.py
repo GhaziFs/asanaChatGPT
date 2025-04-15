@@ -170,7 +170,7 @@ st.write("أدخل معرف (ID) المشروع للحصول على تقرير �
 
 project_id_input = st.text_input("🔢 معرّف المشروع (Project ID)", "")
 
-if st.button("توليد التقرير") and project_id_input:
+if st.button("..توليد التقرير") and project_id_input:
     with st.spinner("📡 جاري تحميل البيانات من Asana..."):
         try:
             project_name = get_project_name(project_id_input)
