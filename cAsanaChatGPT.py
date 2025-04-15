@@ -149,6 +149,45 @@ def generate_chart(df):
 
 def upload_to_google_sheets(sheet_id, df_tasks, df_summary, df_users, gpt_summary):
     import gspread
+    from google.oauth2.service_account import Credentials
+
+    # إعداد النطاقات المطلوبة
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+
+    # تحميل بيانات credentials من st.secrets
+    service_account_info = st.secrets["google_service_account"]
+
+    credentials = Credentials.from_service_account_info(service_account_info, scopes=scopes)
+    client = gspread.authorize(credentials)
+
+    sheet = client.open_by_key(sheet_id)
+
+    # معالجة الجداول لمنع NaT أو NaN
+    df_tasks = df_tasks.fillna("")
+    df_summary = df_summary.fillna("")
+    df_users = df_users.fillna("")
+
+    # جلب الشيتات
+    sheet_tasks = sheet.worksheet("مهام المشروع")
+    sheet_summary = sheet.worksheet("إحصائيات عامة")
+    sheet_users = sheet.worksheet("تحليل الموظفين")
+    sheet_gpt = sheet.worksheet("تحليل GPT")
+
+    # حذف البيانات القديمة
+    sheet_tasks.clear()
+    sheet_summary.clear()
+    sheet_users.clear()
+    sheet_gpt.clear()
+
+    # رفع البيانات
+    sheet_tasks.update([df_tasks.columns.values.tolist()] + df_tasks.values.tolist())
+    sheet_summary.update([df_summary.columns.values.tolist()] + df_summary.values.tolist())
+    sheet_users.update([df_users.columns.values.tolist()] + df_users.values.tolist())
+    sheet_gpt.update([[gpt_summary]])
+    import gspread
     from oauth2client.service_account import ServiceAccountCredentials
 
     scope = [
