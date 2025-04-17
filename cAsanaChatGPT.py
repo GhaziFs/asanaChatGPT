@@ -32,25 +32,25 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --------- وظائف --------- #
+# --------- الوظائف --------- #
 def get_project_name(project_id):
     url = f"https://app.asana.com/api/1.0/projects/{project_id}"
     response = requests.get(url, headers=headers)
     return response.json()['data']['name']
 
 def get_asana_tasks(project_id):
-    url = f"https://app.asana.com/api/1.0/projects/{project_id}/tasks?opt_fields=name,assignee.name,completed,due_on"
+    url = f"https://app.asana.com/api/1.0/projects/{project_id}/tasks?opt_fields=name,assignee.name,completed,due_on,gid"
     response = requests.get(url, headers=headers)
     return response.json()['data']
 
-def process_tasks_to_df(tasks):
+def process_tasks_to_df(tasks, project_id):
     data = []
     for task in tasks:
-        completed = task.get("completed")
+        task_url = f"https://app.asana.com/0/{project_id}/{task['gid']}"
         data.append({
-            "Task Name": task.get("name"),
+            "Task Name": f"[{task['name']}]({task_url})",
             "Assignee": task["assignee"]["name"] if task.get("assignee") else "غير مسند",
-            "Completed": "✅" if completed else "❌",
+            "Completed": "✅" if task.get("completed") else "❌",
             "Due Date": task.get("due_on")
         })
     df = pd.DataFrame(data)
@@ -101,14 +101,33 @@ def generate_summary_with_gpt(df, user_stats):
 def generate_chart(df):
     counts = {
         "Completed": (df["Completed"] == "✅").sum(),
-        "Not Completed ": (df["Completed"] == "❌").sum(),
+        "Not Completed": (df["Completed"] == "❌").sum(),
         "Delayed": ((df["Completed"] == "❌") & (df["Due Date"] < pd.Timestamp.today())).sum()
     }
     fig, ax = plt.subplots(figsize=(6, 3))
     ax.bar(counts.keys(), counts.values(), color=['green', 'orange', 'red'])
-    ax.set_title("Task Completion Status")
-    ax.set_ylabel("Total Tasks")
+    ax.set_title("حالة المهام")
+    ax.set_ylabel("عدد المهام")
     st.pyplot(fig)
+
+def export_excel_report(df, user_stats_df, summary, project_name):
+    overall_summary = pd.DataFrame({
+        "Project Name": [project_name],
+        "Total Tasks": [len(df)],
+        "Completed": [(df["Completed"] == "✅").sum()],
+        "Not Completed": [(df["Completed"] == "❌").sum()],
+        "Delayed": [((df["Completed"] == "❌") & (df["Due Date"] < pd.Timestamp.today())).sum()]
+    })
+
+    summary_df = pd.DataFrame({"تحليل GPT": [summary]})
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name="مهام المشروع")
+        overall_summary.to_excel(writer, index=False, sheet_name="إحصائيات عامة")
+        user_stats_df.to_excel(writer, index=False, sheet_name="تحليل الموظفين")
+        summary_df.to_excel(writer, index=False, sheet_name="تحليل GPT")
+    output.seek(0)
+    return output
 
 def upload_to_google_sheets(sheet_id, df_tasks, df_summary, df_users, gpt_summary):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -117,7 +136,6 @@ def upload_to_google_sheets(sheet_id, df_tasks, df_summary, df_users, gpt_summar
     client = gspread.authorize(credentials)
     sheet = client.open_by_key(sheet_id)
 
-    # معالجة قيم NaT/NaN
     df_tasks = df_tasks.fillna("").astype(str)
     df_summary = df_summary.fillna("").astype(str)
     df_users = df_users.fillna("").astype(str)
@@ -141,17 +159,16 @@ def upload_to_google_sheets(sheet_id, df_tasks, df_summary, df_users, gpt_summar
         ws = sheet.add_worksheet(title="تحليل GPT", rows="100", cols="1")
     ws.update("A1", [[gpt_summary]])
 
-
 # --------- واجهة المستخدم --------- #
 st.markdown("<div class='report-title'>📋 مولد تقرير Asana</div>", unsafe_allow_html=True)
 project_id_input = st.text_input("🔢 معرّف المشروع (Project ID)", "")
 
 if st.button("..توليد التقرير") and project_id_input:
-    with st.spinner("📱 جاري تحميل البيانات..."):
+    with st.spinner("📡 جاري تحميل البيانات..."):
         try:
             project_name = get_project_name(project_id_input)
             tasks = get_asana_tasks(project_id_input)
-            df = process_tasks_to_df(tasks)
+            df = process_tasks_to_df(tasks, project_id_input)
             user_stats_df = generate_user_stats(df)
             summary = generate_summary_with_gpt(df, user_stats_df)
 
@@ -171,6 +188,7 @@ if st.button("..توليد التقرير") and project_id_input:
             st.dataframe(user_stats_df, use_container_width=True)
 
             overall_summary = pd.DataFrame({
+                "Project Name": [project_name],
                 "Total Tasks": [len(df)],
                 "Completed": [(df["Completed"] == "✅").sum()],
                 "Not Completed": [(df["Completed"] == "❌").sum()],
@@ -187,5 +205,14 @@ if st.button("..توليد التقرير") and project_id_input:
 
             st.success("✅ تم تحديث Google Sheets بنجاح!")
 
+            st.markdown("<div class='section-header'>📥 تحميل ملف Excel</div>", unsafe_allow_html=True)
+            excel_file = export_excel_report(df, user_stats_df, summary, project_name)
+            st.download_button(
+                label="⬇️ تحميل تقرير Excel",
+                data=excel_file,
+                file_name=f"asana_report_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
         except Exception as e:
-            st.error(f"حدث خطأ: {e}")
+            st.error(f"❌ حدث خطأ: {e}")
