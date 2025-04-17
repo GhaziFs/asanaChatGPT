@@ -190,7 +190,7 @@ if st.button("..توليد التقرير") and project_id_input:
             generate_chart(df)
 
             
-            st.markdown("<div class='section-header'>📊 المهام</div>", unsafe_allow_html=True)
+            st.markdown("<div class='section-header'>📊 :المهام</div>", unsafe_allow_html=True)
             st.dataframe(df, use_container_width=True)
 
 
