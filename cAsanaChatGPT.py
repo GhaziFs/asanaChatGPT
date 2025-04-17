@@ -32,6 +32,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+
 # --------- الوظائف --------- #
 def get_project_name(project_id):
     url = f"https://app.asana.com/api/1.0/projects/{project_id}"
@@ -39,34 +40,37 @@ def get_project_name(project_id):
     return response.json()['data']['name']
 
 def get_asana_tasks(project_id):
-    url = f"https://app.asana.com/api/1.0/projects/{project_id}/tasks?opt_fields=name,assignee.name,completed,due_on,gid"
+    url = f"https://app.asana.com/api/1.0/projects/{project_id}/tasks?opt_fields=name,assignee.name,created_by.name,completed,due_on,gid"
     response = requests.get(url, headers=headers)
     return response.json()['data']
 
 def process_tasks_to_df(tasks, project_id):
     data = []
     for task in tasks:
-        task_url = f"https://app.asana.com/0/{project_id}/{task['gid']}"
         data.append({
-            "Task Name": f"[{task['name']}]({task_url})",
-            "Assignee": task["assignee"]["name"] if task.get("assignee") else "غير مسند",
-            "Completed": "✅" if task.get("completed") else "❌",
-            "Due Date": task.get("due_on")
+            "المهمة": task['name'],
+            "المسند إليه": task["assignee"]["name"] if task.get("assignee") else "غير مسند",
+            "أنشأها": task["created_by"]["name"] if task.get("created_by") else "غير معروف",
+            "الحالة": "✅" if task.get("completed") else "❌",
+            "تاريخ التسليم": task.get("due_on")
         })
     df = pd.DataFrame(data)
-    df["Due Date"] = pd.to_datetime(df["Due Date"], errors='coerce')
+    df["تاريخ التسليم"] = pd.to_datetime(df["تاريخ التسليم"], errors='coerce')
     return df
 
 def generate_user_stats(df):
     df_copy = df.copy()
-    df_copy["Delayed"] = (df_copy["Completed"] == "❌") & (df_copy["Due Date"] < pd.Timestamp.today())
-    grouped = df_copy.groupby("Assignee").agg({
-        "Task Name": "count",
-        "Completed": lambda x: (x == "✅").sum(),
-        "Delayed": "sum"
+    df_copy["متأخرة"] = (df_copy["الحالة"] == "❌") & (df_copy["تاريخ التسليم"] < pd.Timestamp.today())
+    grouped = df_copy.groupby("المسند إليه").agg({
+        "المهمة": "count",
+        "الحالة": lambda x: (x == "✅").sum(),
+        "متأخرة": "sum"
     }).reset_index()
-    grouped.columns = ["Assignee", "Total Tasks", "Completed Tasks", "Delayed Tasks"]
+    grouped.columns = ["المسند إليه", "عدد المهام", "المهام المكتملة", "المهام المتأخرة"]
     return grouped
+
+def generate_created_by_stats(df):
+    return df.groupby("أنشأها").agg({"المهمة": "count"}).reset_index().rename(columns={"المهمة": "عدد المهام المنشأة"})
 
 def generate_summary_with_gpt(df, user_stats):
     client = OpenAI(api_key=OPENAI_API_KEY)
@@ -80,9 +84,9 @@ def generate_summary_with_gpt(df, user_stats):
 {user_stats.to_string(index=False)}
 
 - عدد المهام: {len(df)}
-- مكتملة: {(df['Completed'] == '✅').sum()}
-- غير مكتملة: {(df['Completed'] == '❌').sum()}
-- متأخرة: {(df['Completed'] == '❌') & (df['Due Date'] < pd.Timestamp.today()).sum()}
+- مكتملة: {(df['الحالة'] == '✅').sum()}
+- غير مكتملة: {(df['الحالة'] == '❌').sum()}
+- متأخرة: {(df['الحالة'] == '❌') & (df['تاريخ التسليم'] < pd.Timestamp.today()).sum()}
 
 ابدأ بملخص عام عن المشروع.
 ثم افصل بين:
@@ -100,23 +104,23 @@ def generate_summary_with_gpt(df, user_stats):
 
 def generate_chart(df):
     counts = {
-        "Completed": (df["Completed"] == "✅").sum(),
-        "Not Completed": (df["Completed"] == "❌").sum(),
-        "Delayed": ((df["Completed"] == "❌") & (df["Due Date"] < pd.Timestamp.today())).sum()
+        "Completed": (df["الحالة"] == "✅").sum(),
+        "Not completed ": (df["الحالة"] == "❌").sum(),
+        "Delayed": ((df["الحالة"] == "❌") & (df["تاريخ التسليم"] < pd.Timestamp.today())).sum()
     }
     fig, ax = plt.subplots(figsize=(6, 3))
     ax.bar(counts.keys(), counts.values(), color=['green', 'orange', 'red'])
-    ax.set_title("حالة المهام")
-    ax.set_ylabel("عدد المهام")
+    ax.set_title("Tasks status ")
+    ax.set_ylabel("Number of tasks ")
     st.pyplot(fig)
 
-def export_excel_report(df, user_stats_df, summary, project_name):
+def export_excel_report(df, user_stats_df, created_by_df, summary, project_name):
     overall_summary = pd.DataFrame({
-        "Project Name": [project_name],
-        "Total Tasks": [len(df)],
-        "Completed": [(df["Completed"] == "✅").sum()],
-        "Not Completed": [(df["Completed"] == "❌").sum()],
-        "Delayed": [((df["Completed"] == "❌") & (df["Due Date"] < pd.Timestamp.today())).sum()]
+        "اسم المشروع": [project_name],
+        "عدد المهام": [len(df)],
+        "مكتملة": [(df["الحالة"] == "✅").sum()],
+        "غير مكتملة": [(df["الحالة"] == "❌").sum()],
+        "متأخرة": [((df["الحالة"] == "❌") & (df["تاريخ التسليم"] < pd.Timestamp.today())).sum()]
     })
 
     summary_df = pd.DataFrame({"تحليل GPT": [summary]})
@@ -125,11 +129,12 @@ def export_excel_report(df, user_stats_df, summary, project_name):
         df.to_excel(writer, index=False, sheet_name="مهام المشروع")
         overall_summary.to_excel(writer, index=False, sheet_name="إحصائيات عامة")
         user_stats_df.to_excel(writer, index=False, sheet_name="تحليل الموظفين")
+        created_by_df.to_excel(writer, index=False, sheet_name="منشئي المهام")
         summary_df.to_excel(writer, index=False, sheet_name="تحليل GPT")
     output.seek(0)
     return output
 
-def upload_to_google_sheets(sheet_id, df_tasks, df_summary, df_users, gpt_summary):
+def upload_to_google_sheets(sheet_id, df_tasks, df_summary, df_users, df_created_by, gpt_summary):
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     credentials_dict = st.secrets["google_service_account"]
     credentials = service_account.Credentials.from_service_account_info(credentials_dict, scopes=scopes)
@@ -139,6 +144,7 @@ def upload_to_google_sheets(sheet_id, df_tasks, df_summary, df_users, gpt_summar
     df_tasks = df_tasks.fillna("").astype(str)
     df_summary = df_summary.fillna("").astype(str)
     df_users = df_users.fillna("").astype(str)
+    df_created_by = df_created_by.fillna("").astype(str)
 
     def update_sheet(name, data):
         try:
@@ -151,6 +157,7 @@ def upload_to_google_sheets(sheet_id, df_tasks, df_summary, df_users, gpt_summar
     update_sheet("مهام المشروع", df_tasks)
     update_sheet("إحصائيات عامة", df_summary)
     update_sheet("تحليل الموظفين", df_users)
+    update_sheet("منشئي المهام", df_created_by)
 
     try:
         ws = sheet.worksheet("تحليل GPT")
@@ -170,6 +177,7 @@ if st.button("..توليد التقرير") and project_id_input:
             tasks = get_asana_tasks(project_id_input)
             df = process_tasks_to_df(tasks, project_id_input)
             user_stats_df = generate_user_stats(df)
+            created_by_stats_df = generate_created_by_stats(df)
             summary = generate_summary_with_gpt(df, user_stats_df)
 
             st.markdown(f"<div class='section-header'>📌 تقرير المشروع: {project_name}</div>", unsafe_allow_html=True)
@@ -181,18 +189,25 @@ if st.button("..توليد التقرير") and project_id_input:
             st.markdown("<div class='section-header'>📈 الرسم البياني</div>", unsafe_allow_html=True)
             generate_chart(df)
 
+            
             st.markdown("<div class='section-header'>📊 المهام</div>", unsafe_allow_html=True)
             st.dataframe(df, use_container_width=True)
+
+
+
 
             st.markdown("<div class='section-header'>👥 الموظفون</div>", unsafe_allow_html=True)
             st.dataframe(user_stats_df, use_container_width=True)
 
+            st.markdown("<div class='section-header'>📝 عدد المهام التي أنشأها كل موظف</div>", unsafe_allow_html=True)
+            st.dataframe(created_by_stats_df, use_container_width=True)
+
             overall_summary = pd.DataFrame({
-                "Project Name": [project_name],
-                "Total Tasks": [len(df)],
-                "Completed": [(df["Completed"] == "✅").sum()],
-                "Not Completed": [(df["Completed"] == "❌").sum()],
-                "Delayed": [((df["Completed"] == "❌") & (df["Due Date"] < pd.Timestamp.today())).sum()]
+                "اسم المشروع": [project_name],
+                "عدد المهام": [len(df)],
+                "مكتملة": [(df["الحالة"] == "✅").sum()],
+                "غير مكتملة": [(df["الحالة"] == "❌").sum()],
+                "متأخرة": [((df["الحالة"] == "❌") & (df["تاريخ التسليم"] < pd.Timestamp.today())).sum()]
             })
 
             upload_to_google_sheets(
@@ -200,13 +215,14 @@ if st.button("..توليد التقرير") and project_id_input:
                 df_tasks=df,
                 df_summary=overall_summary,
                 df_users=user_stats_df,
+                df_created_by=created_by_stats_df,
                 gpt_summary=summary
             )
 
             st.success("✅ تم تحديث Google Sheets بنجاح!")
 
             st.markdown("<div class='section-header'>📥 تحميل ملف Excel</div>", unsafe_allow_html=True)
-            excel_file = export_excel_report(df, user_stats_df, summary, project_name)
+            excel_file = export_excel_report(df, user_stats_df, created_by_stats_df, summary, project_name)
             st.download_button(
                 label="⬇️ تحميل تقرير Excel",
                 data=excel_file,
